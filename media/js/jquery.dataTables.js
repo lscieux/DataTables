@@ -777,10 +777,8 @@
 			{
 				if ( oSettings.iDrawError != oSettings.iDraw && oCol.sDefaultContent === null )
 				{
-					_fnLog( oSettings, 0, "Requested unknown parameter "+
-						(typeof oCol.mData=='function' ? '{mData function}' : "'"+oCol.mData+"'")+
-						" from the data source for row "+iRow );
-					oSettings.iDrawError = oSettings.iDraw;
+					oSettings.oInstance.fnSetColumnVis(iCol, false);
+                    oSettings.iDrawError = oSettings.iDraw;
 				}
 				return oCol.sDefaultContent;
 			}
@@ -1562,23 +1560,24 @@
 				}
 			}
 			
-			/* Call all required callback functions for the end of a draw */
-			_fnCallbackFire( oSettings, 'aoDrawCallback', 'draw', [oSettings] );
-			
-			/* Draw is complete, sorting and filtering must be as well */
-			oSettings.bSorted = false;
-			oSettings.bFiltered = false;
-			oSettings.bDrawing = false;
-			
-			if ( oSettings.oFeatures.bServerSide )
-			{
-				_fnProcessingDisplay( oSettings, false );
-				if ( !oSettings._bInitComplete )
-				{
-					_fnInitComplete( oSettings );
-				}
-			}
-		}
+            // Wait for the loading of all the image to correctly calculate column width in draw callback function
+			$(oSettings.oInstance).waitForImages(function () {
+			    /* Call all required callback functions for the end of a draw */
+			    _fnCallbackFire(oSettings, 'aoDrawCallback', 'draw', [oSettings]);
+
+			    /* Draw is complete, sorting and filtering must be as well */
+			    oSettings.bSorted = false;
+			    oSettings.bFiltered = false;
+			    oSettings.bDrawing = false;
+
+			    if (oSettings.oFeatures.bServerSide) {
+			        _fnProcessingDisplay(oSettings, false);
+			        if (!oSettings._bInitComplete) {
+			            _fnInitComplete(oSettings);
+			        }
+			    }
+			});
+        }
 		
 		
 		/**
@@ -3136,7 +3135,16 @@
 					{
 						nScrollFoot.scrollLeft = this.scrollLeft;
 					}
-				} );
+				});
+
+                // When we use the tabulation key in the header, we also need to scroll the body
+			    $(nScrollHead).scroll(function(e) {
+			        nScrollBody.scrollLeft = this.scrollLeft;
+			        
+			        if (nTfoot !== null) {
+			            nScrollFoot.scrollLeft = this.scrollLeft;
+			        }
+			    });
 			}
 			
 			/* When yscrolling, add the height */
@@ -3550,7 +3558,29 @@
 			return ( iWidth );
 		}
 		
-		
+		function _fnRestoreUserResizes(oSettings) {
+		    var iCorrector = 0;
+            for (var i = 0 ; i < oSettings.aoColumns.length ; i++) {
+                var oColumn = oSettings.aoColumns[i];
+                if (oColumn.bVisible) {
+                    var nTh = $("th:eq(" + (i - iCorrector) + ")", oSettings.nTHead);
+                    var userResize = nTh.prop("userResize");
+                    if (userResize != undefined) {
+                        var diff = nTh.width() - userResize;
+                        oColumn.sWidth = _fnStringToCss(userResize);
+                        nTh.width(userResize);
+                        $("td:eq(" + i + ")", $("tbody tr", oSettings.nTable)).width(userResize);
+                        $("th:eq(" + i + ")", $("thead tr", oSettings.nTable)).width(userResize);
+                        var newWidth = $(oSettings.nTable).width() - diff;
+                        $(oSettings.nTable).width(newWidth);
+                    }
+               }
+               else {
+                    iCorrector++;
+               }
+            }
+		}
+	    
 		/**
 		 * Calculate the width of columns for the table
 		 *  @param {object} oSettings dataTables settings object
@@ -3567,7 +3597,9 @@
 			var oHeaders = $('th', oSettings.nTHead);
 			var widthAttr = oSettings.nTable.getAttribute('width');
 			var nWrapper = oSettings.nTable.parentNode;
-			
+
+            _fnRestoreUserResizes(oSettings);
+
 			/* Convert any user input sizes into pixel sizes */
 			for ( i=0 ; i<iColums ; i++ )
 			{
@@ -4354,22 +4386,23 @@
 					iTargetCol = i % iColumns;
 					
 					/* What is the full list of classes now */
-					sCurrentClass = nTds[i].className;
-					/* What sorting class should be applied? */
-					sNewClass = asClasses[iTargetCol];
-					/* What would the new full list be if we did a replacement? */
-					sTmpClass = sCurrentClass.replace(reClass, sNewClass);
-					
-					if ( sTmpClass != sCurrentClass )
-					{
-						/* We changed something */
-						nTds[i].className = $.trim( sTmpClass );
-					}
-					else if ( sNewClass.length > 0 && sCurrentClass.indexOf(sNewClass) == -1 )
-					{
-						/* We need to add a class */
-						nTds[i].className = sCurrentClass + " " + sNewClass;
-					}
+                    if (sCurrentClass != undefined) {
+                        sCurrentClass = nTds[i].className;
+
+                        /* What sorting class should be applied? */
+                        sNewClass = asClasses[iTargetCol];
+                        /* What would the new full list be if we did a replacement? */
+                        sTmpClass = sCurrentClass.replace(reClass, sNewClass);
+
+                        if (sTmpClass != sCurrentClass) {
+                            /* We changed something */
+                            nTds[i].className = $.trim(sTmpClass);
+                        }
+                        else if (sNewClass.length > 0 && sCurrentClass.indexOf(sNewClass) == -1) {
+                            /* We need to add a class */
+                            nTds[i].className = sCurrentClass + " " + sNewClass;
+                        }
+                    }
 				}
 			}
 		}
@@ -5451,7 +5484,9 @@
 			}
 			
 			/* Remove the DataTables generated nodes, events and classes */
-			oSettings.nTable.parentNode.removeChild( oSettings.nTable );
+			if (oSettings.nTable.parentNode != undefined) {
+			    oSettings.nTable.parentNode.removeChild(oSettings.nTable);
+			}
 			$(oSettings.nTableWrapper).remove();
 			
 			oSettings.aaSorting = [];

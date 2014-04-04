@@ -778,7 +778,12 @@
 				if ( oSettings.iDrawError != oSettings.iDraw && oCol.sDefaultContent === null )
 				{
 					oSettings.oInstance.fnSetColumnVis(iCol, false);
-                    oSettings.iDrawError = oSettings.iDraw;
+                    /*
+				    _fnLog(oSettings, 0, "Requested unknown parameter " +
+						(typeof oCol.mData=='function' ? '{mData function}' : "'"+oCol.mData+"'")+
+						" from the data source for row "+iRow );
+                    */
+					oSettings.iDrawError = oSettings.iDraw;
 				}
 				return oCol.sDefaultContent;
 			}
@@ -3558,6 +3563,7 @@
 			return ( iWidth );
 		}
 		
+        /*
 		function _fnRestoreUserResizes(oSettings) {
 		    var iCorrector = 0;
             for (var i = 0 ; i < oSettings.aoColumns.length ; i++) {
@@ -3580,6 +3586,7 @@
                }
             }
 		}
+        */
 	    
 		/**
 		 * Calculate the width of columns for the table
@@ -3598,7 +3605,7 @@
 			var widthAttr = oSettings.nTable.getAttribute('width');
 			var nWrapper = oSettings.nTable.parentNode;
 
-            _fnRestoreUserResizes(oSettings);
+            //_fnRestoreUserResizes(oSettings);
 
 			/* Convert any user input sizes into pixel sizes */
 			for ( i=0 ; i<iColums ; i++ )

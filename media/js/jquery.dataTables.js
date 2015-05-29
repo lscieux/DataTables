@@ -1,4 +1,4 @@
-/*! DataTables 1.10.5-dev
+/*! DataTables 1.10.5-dev (forked from 744155653eb03afdcf99c9bbaf5a5f66a708c3c2)
  * ©2008-2014 SpryMedia Ltd - datatables.net/license
  */
 
@@ -1096,10 +1096,8 @@
 	
 		if ( cellData === undefined ) {
 			if ( settings.iDrawError != draw && defaultContent === null ) {
-				_fnLog( settings, 0, "Requested unknown parameter "+
-					(typeof col.mData=='function' ? '{function}' : "'"+col.mData+"'")+
-					" for row "+rowIdx, 4 );
-				settings.iDrawError = draw;
+			    settings.oInstance.fnSetColumnVis(colIdx, false);
+			    settings.iDrawError = draw;
 			}
 			return defaultContent;
 		}
@@ -1699,10 +1697,6 @@
 	
 			_fnCallbackFire( oSettings, 'aoRowCreatedCallback', null, [nTr, rowData, iRow] );
 		}
-	
-		// Remove once webkit bug 131819 and Chromium bug 365619 have been resolved
-		// and deployed
-		row.nTr.setAttribute( 'role', 'row' );
 	}
 	
 	
@@ -1797,9 +1791,6 @@
 			_fnDetectHeader( oSettings.aoHeader, thead );
 		}
 		
-		/* ARIA role for the rows */
-	 	$(thead).find('>tr').attr('role', 'row');
-	
 		/* Deal with the footer - add classes if required */
 		$(thead).find('>tr>th, >tr>td').addClass( classes.sHeaderTH );
 		$(tfoot).find('>tr>th, >tr>td').addClass( classes.sFooterTH );
@@ -1920,9 +1911,11 @@
 					}
 	
 					/* Do the actual expansion in the DOM */
-					$(aoLocal[i][j].cell)
-						.attr('rowspan', iRowspan)
-						.attr('colspan', iColspan);
+				    if (iRowspan > 1 || iColspan > 1) {
+				        $(aoLocal[i][j].cell)
+				            .attr('rowspan', iRowspan)
+				            .attr('colspan', iColspan);
+				    }
 				}
 			}
 		}
@@ -2057,14 +2050,17 @@
 	
 		body.children().detach();
 		body.append( $(anRows) );
-	
-		/* Call all required callback functions for the end of a draw */
-		_fnCallbackFire( oSettings, 'aoDrawCallback', 'draw', [oSettings] );
-	
-		/* Draw is complete, sorting and filtering must be as well */
-		oSettings.bSorted = false;
-		oSettings.bFiltered = false;
-		oSettings.bDrawing = false;
+	    
+	    // Wait for the loading of all the image to correctly calculate column width in draw callback function
+	    $(oSettings.oInstance).waitForImages(function() {
+	        /* Call all required callback functions for the end of a draw */
+	        _fnCallbackFire(oSettings, 'aoDrawCallback', 'draw', [oSettings]);
+
+	        /* Draw is complete, sorting and filtering must be as well */
+	        oSettings.bSorted = false;
+	        oSettings.bFiltered = false;
+	        oSettings.bDrawing = false;
+	    });
 	}
 	
 	
@@ -3581,9 +3577,6 @@
 	{
 		var table = $(settings.nTable);
 	
-		// Add the ARIA grid role to the table
-		table.attr( 'role', 'grid' );
-	
 		// Scrolling from here on in
 		var scroll = settings.oScroll;
 	
@@ -3711,6 +3704,15 @@
 				}
 			} );
 		}
+
+	    // When we use the tabulation key in the header, we also need to scroll the body
+		$(scrollHead).scroll(function (e) {
+		    scrollBody.scrollLeft = this.scrollLeft;
+
+		    if (footer !== null) {
+		        scrollFoot.scrollLeft = this.scrollLeft;
+		    }
+		});
 	
 		settings.nScrollHead = scrollHead;
 		settings.nScrollBody = scrollBody;
@@ -4085,7 +4087,7 @@
 			tableWidthAttr = table.getAttribute('width'),
 			tableContainer = table.parentNode,
 			userInputs = false,
-			i, column, columnIdx, width, outerWidth;
+			i, column, columnIdx, width, outerWidth, lastWidth, lastHeight;
 	
 		/* Convert any user input sizes into pixel sizes */
 		for ( i=0 ; i<visibleColumns.length ; i++ ) {
@@ -4226,9 +4228,14 @@
 		}
 	
 		if ( (tableWidthAttr || scrollX) && ! oSettings._reszEvt ) {
-			$(window).bind('resize.DT-'+oSettings.sInstance, _fnThrottle( function () {
-				_fnAdjustColumnSizing( oSettings );
-			} ) );
+		    $(window).bind('resize.DT-' + oSettings.sInstance, _fnThrottle(function () {
+		        // These checks prevent infinite resursion in IE8.
+		        if ($(window).width() !== lastWidth || $(window).height() !== lastHeight) {
+		            lastWidth = $(window).width();
+		            lastHeight = $(window).height();
+		            _fnAdjustColumnSizing(oSettings);
+		        }
+		    } ) );
 	
 			oSettings._reszEvt = true;
 		}
@@ -4347,18 +4354,20 @@
 	function _fnGetMaxLenString( settings, colIdx )
 	{
 		var s, max=-1, maxIdx = -1;
-	
-		for ( var i=0, ien=settings.aoData.length ; i<ien ; i++ ) {
-			s = _fnGetCellData( settings, i, colIdx, 'display' )+'';
-			s = s.replace( __re_html_remove, '' );
-	
-			if ( s.length > max ) {
-				max = s.length;
-				maxIdx = i;
-			}
-		}
-	
-		return maxIdx;
+
+		if (settings.aoData.length > 0) {
+	        for (var i = settings._iDisplayStart; (i < settings._iDisplayStart + settings._iDisplayLength) && (i < settings.aoData.length); i++) {
+		        s = _fnGetCellData(settings, i, colIdx, 'display') + '';
+	            s = s.replace(__re_html_remove, '');
+
+	            if (s.length > max) {
+	                max = s.length;
+	                maxIdx = i;
+	            }
+	        }
+	    }
+
+	    return maxIdx;
 	}
 	
 	
@@ -4750,6 +4759,12 @@
 			sorting[0]._idx = 0;
 		}
 	
+        // Trigger pre sort redraw callback
+		var ret = _fnCallbackFire(settings, 'aoPreSortRedrawCallback', null, [settings]);
+	    if ($.inArray(false, ret) !== -1) {
+		    return false;
+		}
+
 		// Run the sort by calling a full redraw
 		_fnReDraw( settings );
 	
@@ -4757,6 +4772,8 @@
 		if ( typeof callback == 'function' ) {
 			callback( settings );
 		}
+
+	    return true;
 	}
 	
 	
@@ -4784,11 +4801,11 @@
 				_fnProcessingDisplay( settings, true );
 	
 				setTimeout( function() {
-					_fnSortListener( settings, colIdx, e.shiftKey, callback );
+					var ret = _fnSortListener( settings, colIdx, e.shiftKey, callback );
 	
 					// In server-side processing, the draw callback will remove the
 					// processing display
-					if ( _fnDataSource( settings ) !== 'ssp' ) {
+					if ( _fnDataSource( settings ) !== 'ssp' && ret) {
 						_fnProcessingDisplay( settings, false );
 					}
 				}, 0 );
@@ -6219,6 +6236,7 @@
 			_fnCallbackReg( oSettings, 'aoFooterCallback',     oInit.fnFooterCallback,    'user' );
 			_fnCallbackReg( oSettings, 'aoInitComplete',       oInit.fnInitComplete,      'user' );
 			_fnCallbackReg( oSettings, 'aoPreDrawCallback',    oInit.fnPreDrawCallback,   'user' );
+			_fnCallbackReg( oSettings, 'aoPreSortRedrawCallback', oInit.fnPreSortRedrawCallback, 'user');
 			
 			var oClasses = oSettings.oClasses;
 			
@@ -12950,6 +12968,13 @@
 		 */
 		"aoPreDrawCallback": [],
 	
+	    /**
+		 * Callback functions for just before the table is redrawn after a sort
+		 *  @type array
+		 *  @default []
+		 */
+		"aoPreSortRedrawCallback": [],
+
 		/**
 		 * Callback functions for when the table has been initialised.
 		 *  @type array
